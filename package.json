@@ -2,6 +2,7 @@
   "name": "pulsar-vscode-compat",
   "version": "v2026.5.27-17",
   "description": "VSCode API compatibility layer for Pulsar",
+  "repository": "https://github.com/mauricioszabo/pulsar-vscode-compat",
   "main": "./lib/main.js",
   "engines": {
     "pulsar": ">=1.0.0 <2.0.0"
