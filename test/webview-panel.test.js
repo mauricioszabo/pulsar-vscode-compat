@@ -5,18 +5,27 @@ const fs = require('fs');
 const { fileURLToPath } = require('url');
 
 function fakeElement(tag) {
-  return {
+  const element = {
     tagName: tag.toUpperCase(),
     style: {},
     children: [],
-    classList: { add() {}, remove() {} },
-    appendChild(child) { this.children.push(child); return child; },
+    attributes: {},
+    className: '',
+    classList: {
+      add(name) { element.className = [element.className, name].filter(Boolean).join(' '); },
+      remove(name) { element.className = element.className.split(/\s+/).filter(value => value && value !== name).join(' '); }
+    },
+    appendChild(child) { this.children.push(child); child.parentNode = this; return child; },
     addEventListener() {},
-    setAttribute() {},
-    removeAttribute(name) { delete this[name]; },
+    setAttribute(name, value) { this.attributes[name] = value; this[name] = value; },
+    removeAttribute(name) { delete this[name]; delete this.attributes[name]; },
     dataset: {},
-    contentWindow: { postMessage() {} }
+    contentWindow: {
+      messages: [],
+      postMessage(message) { this.messages.push(message); }
+    }
   };
+  return element;
 }
 
 function test(name, fn) {
@@ -33,8 +42,36 @@ function test(name, fn) {
 test('createWebviewPanel opens a registered pane-item URI instead of a raw object', () => {
   const openCalls = [];
   const openers = [];
-  global.document = { createElement: fakeElement };
-  global.window = { addEventListener() {} };
+  const themeListeners = [];
+  global.document = {
+    createElement: fakeElement,
+    documentElement: fakeElement('html'),
+    body: fakeElement('body'),
+    head: fakeElement('head'),
+    querySelector(selector) {
+      if (selector === 'atom-workspace') return this.body;
+      if (selector === 'atom-text-editor:not([mini])') return null;
+      return null;
+    },
+    getElementById() { return null; }
+  };
+  global.window = {
+    addEventListener() {},
+    getComputedStyle() {
+      return {
+        color: 'rgb(220, 221, 222)',
+        backgroundColor: 'rgb(30, 31, 32)',
+        fontSize: '13px',
+        fontFamily: 'system-ui',
+        borderColor: 'rgb(70, 71, 72)',
+        getPropertyValue(name) {
+          if (name === '--syntax-background-color') return 'rgb(10, 11, 12)';
+          if (name === '--syntax-text-color') return 'rgb(230, 231, 232)';
+          return '';
+        }
+      };
+    }
+  };
   let blobUrlCreated = false;
   global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
   global.URL = { createObjectURL() { blobUrlCreated = true; return 'blob:test'; } };
@@ -44,6 +81,10 @@ test('createWebviewPanel opens a registered pane-item URI instead of a raw objec
       open(target, options) { openCalls.push([target, options]); return Promise.resolve(target); },
       getActivePaneItem() { return null; },
       paneForItem() { return null; }
+    },
+    themes: {
+      getActiveThemeNames() { return ['one-dark-ui']; },
+      onDidChangeActiveThemes(callback) { themeListeners.push(callback); return { dispose() {} }; }
     }
   };
 
@@ -71,8 +112,21 @@ test('createWebviewPanel opens a registered pane-item URI instead of a raw objec
   assert.ok(renderedHtml.indexOf('globalThis.acquireVsCodeApi') < renderedHtml.indexOf('window.appStarted'));
   assert.match(renderedHtml, /<meta charset="utf-8">/);
   assert.match(renderedHtml, /<title>Claude<\/title>/);
+  assert.match(renderedHtml, /<style id="pulsar-vscode-compat-theme" nonce="abc123">/);
+  assert.match(renderedHtml, /--vscode-foreground:\s*rgb\(220, 221, 222\)/);
+  assert.match(renderedHtml, /--vscode-editor-background:\s*rgb\(30, 31, 32\) !important/);
+  assert.match(renderedHtml, /class="vscode-dark"/);
+  assert.ok(renderedHtml.indexOf('pulsar-vscode-compat-theme') < renderedHtml.indexOf('window.beforeModule'));
+  assert.match(renderedHtml, /style-src 'nonce-abc123' file:/);
   assert.match(renderedHtml, /font-src file: data:/);
   assert.strictEqual(blobUrlCreated, false);
+
+  assert.strictEqual(themeListeners.length, 1);
+  themeListeners[0]();
+  assert.strictEqual(iframe.contentWindow.messages.length, 1);
+  assert.strictEqual(iframe.contentWindow.messages[0].type, 'pulsar-vscode-compat:update-theme');
+  assert.match(iframe.contentWindow.messages[0].css, /--vscode-editor-background/);
+  assert.strictEqual(iframe.contentWindow.messages[0].themeClass, 'vscode-dark');
 
   panel.reveal();
   assert.strictEqual(openCalls.length, 2);
