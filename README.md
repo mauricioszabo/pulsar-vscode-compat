@@ -1,8 +1,36 @@
 # Pulsar VSCode Compatibility Layer
 
-`pulsar-vscode-compat` is an experimental compatibility package that lets selected Visual Studio Code extensions run inside Pulsar by translating parts of the VSCode extension API onto Pulsar APIs.
+- Initial commit - added some APIs for LSP
+- Added an installer of packages, under the "Browse Extensions" command
+- Adapted extensions' configs to Pulsar's
+- Webview API (probably still things missing)
+- Theme adaptation (also listening to theme changes)
+- Pulsar service integrations for autocomplete-plus, symbols-view, linter-indie,
+status-bar, atom-select-list, notifications, and commands
+- Pseudoterminal-backed terminal support for extensions that expose REPL/status terminals
+target is to make real editor workflows work for extensions.
 
-The goal is pragmatic compatibility, not a full VSCode host clone. The current target is to make real editor workflows work for extensions.
+## WARNING - AI CODE
+
+This project is written with **a lot** of AI tools. Multiple tools are being
+used in this translation layer - Claude and Codex are the main ones, but also
+some local models and other approaches. I tried, and failed, multiple times to
+write this translation layer manually, but VSCode API is extensive and there are
+**a lot** of undocumented behaviors, internal structure, and other unreliable
+information that some extensions use. The worst part is that some of these
+extensions are not open-source, which translated to me trying to read minified
+extension code, trying to understand what mapped to what, and having to
+implement all this behavior by hand, just to reload the extension and see it
+fail in different places.
+
+If you are uncomfortable with AI code, be warned. While I don't consider this
+project fully "vibe-coded", more than 90% of this code is AI generated. I wish
+that it didn't - I really do. But it is what it is.
+
+## Tested extensions
+- Calva
+- Claude Code
+- Shopify's Ruby LSP
 
 ## Architecture
 
@@ -91,6 +119,10 @@ The wrapper reads `contributes.commands` from the original VSCode `package.json`
 - `applyEdit` applies VSCode `WorkspaceEdit` text edits to Pulsar buffers and handles simple create/delete/rename file operations.
 - `getConfiguration(section)` maps VSCode configuration keys onto Pulsar config keys. For wrapped extensions, contributed configuration from a single VSCode section is shown as package-level settings in Pulsar's package UI, while `workspace.getConfiguration(section)` still reads/writes the corresponding wrapper setting. Older nested `wrapperPackage.section.key` values are still read as a fallback.
 - `workspace.fs` maps to Node `fs.promises` for the `file:` scheme: `stat`, `readDirectory`, `createDirectory`, `readFile`, `writeFile`, `delete`, `rename`, and `copy`.
+- `registerFileSystemProvider` registers custom URI schemes for `workspace.fs` operations.
+- `registerTextDocumentContentProvider` supports virtual/read-only documents for custom schemes.
+- `createFileSystemWatcher` uses Pulsar's global `atom.watchPath` when available and matches common VSCode glob patterns without an undeclared `minimatch` dependency.
+- `findFiles` handles VSCode `RelativePattern` objects, exact relative paths, common glob patterns, exclusions, and `maxResults` without an undeclared `glob` dependency.
 
 Document lifecycle events are best-effort translations from Pulsar editor/buffer events:
 
@@ -461,23 +493,28 @@ Limitations:
 - This is not a full xterm.js terminal emulator.
 - Shell-backed terminals are rudimentary compared with VSCode's integrated terminal.
 
-### Text editors and decorations
+### Text editors, selections, tabs, and decorations
 
 VSCode:
 
 ```js
 vscode.window.activeTextEditor
 vscode.window.visibleTextEditors
+vscode.window.onDidChangeTextEditorSelection
+vscode.window.tabGroups
 vscode.window.createTextEditorDecorationType(...)
 editor.setDecorations(...)
 ```
 
 Pulsar mapping:
 
-- `TextEditor` wraps Pulsar `TextEditor` instances.
-- Active and visible editors are derived from `atom.workspace`.
+- `TextEditor` wraps Pulsar `TextEditor` instances, with stable wrapper identity per underlying editor so extensions can compare `event.textEditor === vscode.window.activeTextEditor`.
+- Active and visible editors are derived from `atom.workspace`, with fallbacks that remember the last active editor after focus moves into a webview.
+- Selection changes are translated from Pulsar editor selection/cursor events into VSCode-shaped `onDidChangeTextEditorSelection` events.
+- Basic selections, ranges, reveal, edit, insert, delete, and selection setters/getters are implemented.
+- `tabGroups.all` and `activeTabGroup` are synthesized from Pulsar center panes.
+- Text tabs expose `TabInputText`; compat webview tabs expose shared `TabInputWebview` instances so `instanceof vscode.TabInputWebview` checks work.
 - Decorations are translated to Pulsar markers/decorations and generated CSS where possible.
-- Basic selections, ranges, reveal, edit, insert, delete, and selection events are implemented.
 
 Limitations:
 
@@ -513,10 +550,17 @@ vscode.window.createWebviewPanel(...)
 
 Pulsar mapping:
 
-- Basic webview panels are represented by custom Pulsar pane items.
-- HTML content can be assigned and shown.
+- Webview panels are represented by custom Pulsar pane items containing sandboxed iframes.
+- HTML assignment writes a temporary `file:` document instead of `srcdoc`, which avoids inherited Pulsar/Electron CSP blocking the extension's own nonce scripts.
+- A webview API shim injects `acquireVsCodeApi()`, `postMessage`, `setState`, and `getState` before extension webview scripts run.
+- `webview.onDidReceiveMessage` and `webview.postMessage` bridge messages between the extension and iframe.
+- CSP handling is best-effort: the compat layer preserves extension CSP, injects nonce-aware theme/API scripts, and extends CSP where needed for local files/data fonts.
+- `asWebviewUri` currently returns the input URI, while local-resource loading relies on the temporary `file:` document's same-origin access.
+- Pulsar theme values are translated into VSCode-style CSS variables and body classes such as `vscode-dark`; active theme changes post live updates into existing webviews.
+- `createWebviewPanel` honors `ViewColumn.Active`, `One`, `Beside`, and numeric columns by mapping them to center pane opens/splits.
+- `panel.viewColumn` and `panel.reveal(...)` are implemented enough for extensions that manage editor columns.
 
-No-op/stubbed webview APIs:
+Still no-op/stubbed webview APIs:
 
 - `registerWebviewPanelSerializer`
 - `registerWebviewViewProvider`
@@ -561,10 +605,12 @@ These APIs have real behavior and are expected to be useful for compatibility wo
 - Open VSX browser and VSIX wrapper installation.
 - `commands.registerCommand`, `registerTextEditorCommand`, `executeCommand`, `getCommands`.
 - Command palette metadata from VSCode `contributes.commands`.
-- `workspace.openTextDocument`, `showTextDocument`, `textDocuments`, `workspaceFolders`, `getWorkspaceFolder`.
+- `workspace.openTextDocument`, `showTextDocument`, `textDocuments`, `workspaceFolders`, `getWorkspaceFolder`, and `asRelativePath`.
+- `workspace.findFiles` supports strings and `RelativePattern` with dependency-free glob matching for common `*`, `**`, `?`, and `{a,b}` patterns.
+- `workspace.findTextInFiles` is implemented as a best-effort search using Pulsar project scan when available, with a filesystem fallback.
 - `workspace.getConfiguration` for wrapper-owned extension configuration.
 - `workspace.applyEdit` for text edits and simple file operations.
-- `workspace.fs` for local file operations.
+- `workspace.fs` maps to Node `fs.promises` for local `file:` operations and dispatches to registered `FileSystemProvider`s for custom schemes.
 - Text document/editor wrappers: positions, ranges, selections, edits, document text, language id, version, save/change events.
 - Completion through autocomplete-plus.
 - Hover through custom tooltip rendering.
@@ -582,11 +628,14 @@ These APIs have real behavior and are expected to be useful for compatibility wo
 - Quick pick, createQuickPick, input box, open/save dialogs.
 - Notifications/messages with buttons.
 - Pseudoterminal-backed terminals.
-- Basic webview panels.
+- Webview panels with iframe-backed HTML, `acquireVsCodeApi`, message passing, CSP/resource handling, theme variable injection, live theme updates, and `ViewColumn`/`reveal` handling.
+- `window.tabGroups` / `TabInputText` / `TabInputWebview` for open Pulsar panes and compat webviews.
 - Basic tree views.
 - Extension lookup.
-- File system watchers.
+- File system watchers with dependency-free glob matching and Pulsar `atom.watchPath` integration.
 - URI handlers.
+- Notebook output data types such as `NotebookCellOutput` and `NotebookCellOutputItem`.
+- Renderer/iframe shims for DOM `AbortSignal` with Node `events.setMaxListeners`, needed by some bundled browser/agent SDK code.
 
 ### Present but mostly no-op / stubbed
 
@@ -613,7 +662,6 @@ These APIs exist to prevent extensions from failing during activation, but do li
 - Chat and language-model APIs are placeholders.
 - Webview view providers, webview serializers, custom editors, and file decoration providers are no-ops.
 - Tree view `reveal`, selection, checkbox, visibility, and badge behavior are incomplete.
-- Tab groups/tabs are placeholder objects.
 - Notebook editor/window events are placeholder events.
 
 ### Pending / future work
@@ -630,8 +678,8 @@ Important compatibility gaps remain:
 - Inline completions/ghost text.
 - Linked editing, selection ranges, call hierarchy, type hierarchy, inline values, and evaluatable expressions.
 - A stronger terminal implementation, ideally backed by a real terminal emulator for shell terminals.
-- Robust webview implementation with message passing, resource loading, CSP behavior, and serializer/view provider support.
-- Notebook APIs.
+- More complete webview parity: serializer/view-provider lifecycle, custom editors, retained state semantics, stricter resource roots, and better focus/visibility events.
+- Notebook APIs beyond basic output item data types.
 - Debug adapter support.
 - Task execution support.
 - Authentication provider integration.
@@ -651,14 +699,23 @@ Important compatibility gaps remain:
 - Map to existing Pulsar services where they exist: `autocomplete-plus`, `symbols-view`, `linter-indie`, `status-bar`, `atom-select-list`, `atom.notifications`, `atom.commands`, and `atom.workspace`.
 - Use custom adapters only where Pulsar lacks a native equivalent, such as hover tooltips, pseudoterminals, CodeLens, and inlay hints.
 
-## Current practical target
+## Current practical targets
 
-The current practical target is making Calva usable enough to:
+The current practical targets are real extensions and workflows rather than abstract API completeness.
+
+Calva should be usable enough to:
 
 - Load and activate.
 - Register its commands with readable command palette names.
 - Run `calva.connect` through the quick-pick/input flow.
 - Use enough terminal, workspace, command, and language-client APIs to connect to a REPL.
 - Evaluate code and show useful editor feedback.
+
+Claude Code should be usable enough to:
+
+- Load and activate without renderer/AbortSignal crashes.
+- Open its sidebar/editor webviews with working CSP, local resources, theme variables, and `acquireVsCodeApi` messaging.
+- Track webview editor groups through `ViewColumn`, `window.tabGroups`, and `TabInputWebview`.
+- See the user's active editor selection through stable text-editor selection events and `workspace.findFiles(RelativePattern)` support.
 
 This README describes the current state of the compatibility layer, not a guarantee of full VSCode API compatibility.
