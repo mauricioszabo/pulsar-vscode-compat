@@ -53,7 +53,14 @@ The browser installs from Open VSX. After installation it tries to load and acti
 
 VSCode extension activation maps to Pulsar package activation.
 
-The generated wrapper's `activate(state)` does this:
+The generated wrapper translates common VSCode `activationEvents` into native Pulsar lazy activation metadata:
+
+- `onCommand:<id>` becomes `activationCommands` on `atom-workspace`.
+- `onLanguage:<id>` becomes Pulsar grammar activation hooks such as `source.ts:root-scope-used`.
+- VSCode 1.74+ implicit activation is inferred from `contributes.commands` and `contributes.languages` when `activationEvents` is omitted.
+- `*`, `onStartupFinished`, and unsupported events such as `workspaceContains`, `onView`, `onUri`, `onDebug`, and `onTaskType` fall back to normal startup activation rather than being silently missed.
+
+Once Pulsar activates the wrapper package, its `activate(state)` does this:
 
 1. Calls `atom.packages.activatePackage('pulsar-vscode-compat')`.
 2. Loads `pulsar-vscode-compat/lib/vscode.js`.
@@ -82,7 +89,7 @@ The wrapper reads `contributes.commands` from the original VSCode `package.json`
 - `workspaceFolders` maps to `atom.project.getPaths()`.
 - `getWorkspaceFolder(uri)` finds the owning Pulsar project path.
 - `applyEdit` applies VSCode `WorkspaceEdit` text edits to Pulsar buffers and handles simple create/delete/rename file operations.
-- `getConfiguration(section)` maps VSCode configuration keys onto Pulsar config keys. For wrapped extensions, contributed configuration is stored under the wrapper package's config schema and looked up as `wrapperPackage.section.key` when possible.
+- `getConfiguration(section)` maps VSCode configuration keys onto Pulsar config keys. For wrapped extensions, contributed configuration from a single VSCode section is shown as package-level settings in Pulsar's package UI, while `workspace.getConfiguration(section)` still reads/writes the corresponding wrapper setting. Older nested `wrapperPackage.section.key` values are still read as a fallback.
 - `workspace.fs` maps to Node `fs.promises` for the `file:` scheme: `stat`, `readDirectory`, `createDirectory`, `readFile`, `writeFile`, `delete`, `rename`, and `copy`.
 
 Document lifecycle events are best-effort translations from Pulsar editor/buffer events:
