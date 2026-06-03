@@ -37,6 +37,16 @@
       "versions": {
         "1.0.0": "provideSymbols"
       }
+    },
+    "hover": {
+      "versions": {
+        "0.1.0": "provideHover"
+      }
+    },
+    "outline-view": {
+      "versions": {
+        "0.1.0": "provideOutlines"
+      }
     }
   }
 }
