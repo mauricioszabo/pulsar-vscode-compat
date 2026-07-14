@@ -15,7 +15,7 @@ target is to make real editor workflows work for extensions.
 This project is written with **a lot** of AI tools. Multiple tools are being
 used in this translation layer - Claude and Codex are the main ones, but also
 some local models and other approaches. I tried, and failed, multiple times to
-write this translation layer manually, but VSCode API is extensive and there are
+write this translation layer manuall - the VSCode API is extensive and there are
 **a lot** of undocumented behaviors, internal structure, and other unreliable
 information that some extensions use. The worst part is that some of these
 extensions are not open-source, which translated to me trying to read minified
@@ -27,10 +27,36 @@ If you are uncomfortable with AI code, be warned. While I don't consider this
 project fully "vibe-coded", more than 90% of this code is AI generated. I wish
 that it didn't - I really do. But it is what it is.
 
-## Tested extensions
-- Calva
-- Claude Code
-- Shopify's Ruby LSP
+## Installing VSCode extensions
+
+Use the built-in extension browser command:
+
+```text
+pulsar-vscode-compat:browse-extensions
+```
+
+![Browser window](docs/browser.jpg)
+
+The browser installs from Open VSX. After installation it tries to load and
+activate the generated Pulsar package immediately with Pulsar's package manager.
+A reload prompt is only shown if immediate activation fails.
+
+The compatibility layer tries really hard to map the extension activation hooks
+into Pulsar ones - for example, opening up a Python source code should trigger
+the activation if that's what the extension defined; triggering up a command
+also works (but the command's name might be different from VSCode, for now at
+least). For all purposes, the VSCode extension is installed as if it's a
+**Pulsar** package - so you can uninstall it from the Pulsar's package manager,
+you will see the extension code under the same directory as Pulsar's ones
+(usually `~/.pulsar/packages`), and you can see the README, and the configs
+available, under Pulsar's settings panel - for all effects and purposes, as soon
+as it is installed, a VSCode extension **is** a Pulsar package.
+
+Deactivating (and reloading) the VSCode Compat, while you have VSCode extensions
+installed, will probably crash them. We might, in the future, offer a warning
+that the compatibility layer is not present, but installing a VSCode extension
+under Pulsar, then disabling/uninstalling the compat layer and making the VSCode
+extension _still works_ won't ever be supported.
 
 ## Architecture
 
@@ -64,16 +90,6 @@ node_modules/vscode/index.js
 ```
 
 That shim is intentionally local to the generated wrapper package. There is no global `require('vscode')` hook in Pulsar core. The generated wrapper first activates `pulsar-vscode-compat`, then loads the original VSCode extension. If `pulsar-vscode-compat` is missing, disabled, or fails to activate, the generated wrapper logs a warning and does not load the VSCode extension.
-
-## Installing VSCode extensions
-
-Use the built-in extension browser command:
-
-```text
-pulsar-vscode-compat:browse-extensions
-```
-
-The browser installs from Open VSX. After installation it tries to load and activate the generated Pulsar package immediately with Pulsar's package manager. A reload prompt is only shown if immediate activation fails.
 
 ## What maps to what
 
@@ -719,3 +735,8 @@ Claude Code should be usable enough to:
 - See the user's active editor selection through stable text-editor selection events and `workspace.findFiles(RelativePattern)` support.
 
 This README describes the current state of the compatibility layer, not a guarantee of full VSCode API compatibility.
+
+## Tested extensions
+- Calva
+- Claude Code
+- Shopify's Ruby LSP
