@@ -30,7 +30,8 @@ global.document = { createElement: fakeElement };
 const {
   createInlayHintCallout,
   setInlayHintCalloutPlacement,
-  shouldPlaceInlayHintAbove
+  shouldPlaceInlayHintAbove,
+  setInlayHintOverlayZIndexAuto
 } = require('../lib/adapters/inlay-hint-adapter');
 
 const callout = createInlayHintCallout(': float');
@@ -58,6 +59,12 @@ assert.strictEqual(callout.children[1].style.bottom, '-4px');
 setInlayHintCalloutPlacement(callout, false);
 assert(callout.classList.contains('below'));
 assert.strictEqual(callout.children[1].style.top, '-4px');
+
+const overlay = { style: { zIndex: '4' } };
+const calloutInOverlay = { closest(selector) { return selector === 'atom-overlay' ? overlay : null; } };
+assert.strictEqual(setInlayHintOverlayZIndexAuto(calloutInOverlay), true);
+assert.strictEqual(overlay.style.zIndex, 'auto');
+assert.strictEqual(setInlayHintOverlayZIndexAuto({ closest() { return null; } }), false);
 
 const calloutStyles = fs.readFileSync(path.join(__dirname, '../styles/inlay-hints.less'), 'utf8');
 assert.match(calloutStyles, /font-family:\s*var\(--editor-font-family\)/);
