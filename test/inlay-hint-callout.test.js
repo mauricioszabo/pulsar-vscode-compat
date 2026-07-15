@@ -84,6 +84,7 @@ function calloutInEditor({ anchorLeft, anchorTop = 300, viewLeft, viewWidth, cal
   wrapper._rect = { left: anchorLeft, top: anchorTop, width: 0 };
   wrapper._closest['atom-text-editor'] = editorEl;
   el._closest['atom-overlay'] = wrapper;
+  el._rect = { left: 0, top: 310, height: 22 };
   return el;
 }
 
@@ -93,6 +94,7 @@ const fitting = calloutInEditor({ anchorLeft: 610, viewLeft: 10, viewWidth: 800,
 assert.strictEqual(clampInlayHintCallout(fitting), true);
 assert.strictEqual(fitting.style.visibility, 'visible', 'clamping reveals the callout');
 assert.strictEqual(fitting._closest['atom-overlay'].style.zIndex, 'auto', 'wrapper z-index forced to auto');
+assert.strictEqual(fitting._closest['atom-overlay'].style.pointerEvents, 'none', 'wrapper never swallows clicks meant for the line');
 assert.match(fitting.style.transform, /translateX\(-100%\)/, 'callout that fits keeps the default shift');
 assert.strictEqual(fitting.children[1].style.left, 'calc(100% - 4px)');
 assert.strictEqual(fitting.style.maxWidth, '784px', 'max width leaves a margin on both sides');
@@ -130,6 +132,19 @@ assert.strictEqual(scrolledBelow.style.visibility, 'hidden', 'anchor below the v
 scrolledAbove._closest['atom-overlay']._rect.top = 300;
 clampInlayHintCallout(scrolledAbove);
 assert.strictEqual(scrolledAbove.style.visibility, 'visible', 'callout reappears once its anchor scrolls back into view');
+
+// A visible anchor whose box still pokes out of the editor (e.g. flipped above the first
+// visible line) must also hide instead of covering the tab bar / status bar.
+const pokingAbove = calloutInEditor({ anchorLeft: 610, anchorTop: 110, viewLeft: 10, viewWidth: 800, calloutWidth: 100 });
+setInlayHintCalloutPlacement(pokingAbove, true);
+pokingAbove._rect = { left: 0, top: 60, height: 30 };
+assert.strictEqual(clampInlayHintCallout(pokingAbove), true);
+assert.strictEqual(pokingAbove.style.visibility, 'hidden', 'box escaping above the editor is hidden');
+
+const pokingBelow = calloutInEditor({ anchorLeft: 610, anchorTop: 690, viewLeft: 10, viewWidth: 800, calloutWidth: 100 });
+pokingBelow._rect = { left: 0, top: 690, height: 40 };
+assert.strictEqual(clampInlayHintCallout(pokingBelow), true);
+assert.strictEqual(pokingBelow.style.visibility, 'hidden', 'box escaping below the editor is hidden');
 
 const calloutStyles = fs.readFileSync(path.join(__dirname, '../styles/inlay-hints.less'), 'utf8');
 assert.match(calloutStyles, /font-family:\s*var\(--editor-font-family\)/);
