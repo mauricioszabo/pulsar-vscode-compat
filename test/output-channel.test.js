@@ -72,6 +72,14 @@ const commands = require('../lib/namespaces/commands');
     assert.match(panels[0].item.textContent, /Jedi could not be loaded/);
   });
 
+  await test('LogOutputChannel exposes the VSCode onDidChangeLogLevel event', () => {
+    const channel = windowNamespace.createOutputChannel('Mypy Test Log', { log: true });
+    assert.strictEqual(typeof channel.onDidChangeLogLevel, 'function');
+    const disposable = channel.onDidChangeLogLevel(() => {});
+    assert.strictEqual(typeof disposable.dispose, 'function');
+    disposable.dispose();
+  });
+
   await test('workbench.action.output.show reveals an output channel by name', async () => {
     const channel = windowNamespace.createOutputChannel('Python Language Server');
     channel.appendLine('Language server failed');
