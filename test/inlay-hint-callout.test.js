@@ -35,6 +35,7 @@ global.document = { createElement: fakeElement };
 const {
   createInlayHintCallout,
   setInlayHintCalloutPlacement,
+  setInlayHintCalloutEmphasis,
   shouldPlaceInlayHintAbove,
   setInlayHintOverlayZIndexAuto,
   clampInlayHintCallout
@@ -52,8 +53,10 @@ assert.strictEqual(callout.children[1].style.pointerEvents, 'none');
 assert.match(callout.style.transform, /translateX\(-100%\)/);
 assert.match(callout.style.transform, /- var\(--editor-line-height\)/, 'below placement is shifted one editor line upward');
 assert.strictEqual(shouldPlaceInlayHintAbove(4, 4), false, 'cursor on the hinted line keeps the callout below');
-assert.strictEqual(shouldPlaceInlayHintAbove(4, 5), true, 'cursor one line below moves the callout above');
-assert.strictEqual(shouldPlaceInlayHintAbove(4, 6), false, 'other cursor lines keep the callout below');
+assert.strictEqual(shouldPlaceInlayHintAbove(4, 5), true, 'hints above the cursor line open upward');
+assert.strictEqual(shouldPlaceInlayHintAbove(4, 6), true, 'hints further above the cursor line also open upward');
+assert.strictEqual(shouldPlaceInlayHintAbove(5, 4), false, 'hints below the cursor line open downward');
+assert.strictEqual(shouldPlaceInlayHintAbove(4, undefined), false, 'no cursor keeps the callout below');
 
 setInlayHintCalloutPlacement(callout, true);
 assert(callout.classList.contains('above'));
@@ -145,6 +148,13 @@ const pokingBelow = calloutInEditor({ anchorLeft: 610, anchorTop: 690, viewLeft:
 pokingBelow._rect = { left: 0, top: 690, height: 40 };
 assert.strictEqual(clampInlayHintCallout(pokingBelow), true);
 assert.strictEqual(pokingBelow.style.visibility, 'hidden', 'box escaping below the editor is hidden');
+
+// Callouts off the cursor's line fade back so a screen full of hints stays readable.
+const dimmed = createInlayHintCallout(': str');
+setInlayHintCalloutEmphasis(dimmed, false);
+assert.strictEqual(dimmed.style.opacity, '0.90', 'callouts away from the cursor line fade back');
+setInlayHintCalloutEmphasis(dimmed, true);
+assert.strictEqual(dimmed.style.opacity, '0.95', 'the cursor line callout keeps full emphasis');
 
 const calloutStyles = fs.readFileSync(path.join(__dirname, '../styles/inlay-hints.less'), 'utf8');
 assert.match(calloutStyles, /font-family:\s*var\(--editor-font-family\)/);
