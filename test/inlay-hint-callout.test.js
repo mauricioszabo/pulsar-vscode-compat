@@ -74,14 +74,14 @@ assert.strictEqual(overlay.style.zIndex, 'auto');
 assert.strictEqual(setInlayHintOverlayZIndexAuto({ closest() { return null; } }), false);
 
 // Viewport clamping: pins escaping callouts to the editor's left edge, arrow stays on the anchor.
-function calloutInEditor({ anchorLeft, viewLeft, viewWidth, calloutWidth }) {
+function calloutInEditor({ anchorLeft, anchorTop = 300, viewLeft, viewWidth, calloutWidth }) {
   const el = createInlayHintCallout('a long value');
   el.offsetWidth = calloutWidth;
   const scrollView = fakeElement('div');
-  scrollView._rect = { left: viewLeft, width: viewWidth };
+  scrollView._rect = { left: viewLeft, top: 100, width: viewWidth, height: 600 };
   const editorEl = { querySelector(selector) { return selector === '.scroll-view' ? scrollView : null; } };
   const wrapper = fakeElement('atom-overlay');
-  wrapper._rect = { left: anchorLeft, width: 0 };
+  wrapper._rect = { left: anchorLeft, top: anchorTop, width: 0 };
   wrapper._closest['atom-text-editor'] = editorEl;
   el._closest['atom-overlay'] = wrapper;
   return el;
@@ -92,6 +92,7 @@ assert.strictEqual(clampInlayHintCallout(createInlayHintCallout('x')), false, 'n
 const fitting = calloutInEditor({ anchorLeft: 610, viewLeft: 10, viewWidth: 800, calloutWidth: 100 });
 assert.strictEqual(clampInlayHintCallout(fitting), true);
 assert.strictEqual(fitting.style.visibility, 'visible', 'clamping reveals the callout');
+assert.strictEqual(fitting._closest['atom-overlay'].style.zIndex, 'auto', 'wrapper z-index forced to auto');
 assert.match(fitting.style.transform, /translateX\(-100%\)/, 'callout that fits keeps the default shift');
 assert.strictEqual(fitting.children[1].style.left, 'calc(100% - 4px)');
 assert.strictEqual(fitting.style.maxWidth, '784px', 'max width leaves a margin on both sides');
@@ -115,6 +116,20 @@ const atColumnZero = calloutInEditor({ anchorLeft: 10, viewLeft: 10, viewWidth: 
 assert.strictEqual(clampInlayHintCallout(atColumnZero), true);
 assert.match(atColumnZero.style.transform, /translateX\(0px\)/, 'anchor left of the margin never shifts the box off-screen');
 assert.strictEqual(atColumnZero.children[1].style.left, '2px', 'arrow never leaves the box');
+
+// Anchors scrolled out of the editor's visible rows must not render at all (a fixed-position
+// wrapper would otherwise cover the tab bar / status bar).
+const scrolledAbove = calloutInEditor({ anchorLeft: 610, anchorTop: 40, viewLeft: 10, viewWidth: 800, calloutWidth: 100 });
+assert.strictEqual(clampInlayHintCallout(scrolledAbove), true);
+assert.strictEqual(scrolledAbove.style.visibility, 'hidden', 'anchor above the viewport hides the callout');
+
+const scrolledBelow = calloutInEditor({ anchorLeft: 610, anchorTop: 750, viewLeft: 10, viewWidth: 800, calloutWidth: 100 });
+assert.strictEqual(clampInlayHintCallout(scrolledBelow), true);
+assert.strictEqual(scrolledBelow.style.visibility, 'hidden', 'anchor below the viewport hides the callout');
+
+scrolledAbove._closest['atom-overlay']._rect.top = 300;
+clampInlayHintCallout(scrolledAbove);
+assert.strictEqual(scrolledAbove.style.visibility, 'visible', 'callout reappears once its anchor scrolls back into view');
 
 const calloutStyles = fs.readFileSync(path.join(__dirname, '../styles/inlay-hints.less'), 'utf8');
 assert.match(calloutStyles, /font-family:\s*var\(--editor-font-family\)/);
