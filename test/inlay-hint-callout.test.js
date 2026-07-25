@@ -165,7 +165,7 @@ assert(packageMeta.styleSheets.includes('inlay-hints.less'), 'inlay-hints.less i
 const calloutStyles = fs.readFileSync(path.join(__dirname, '../styles/inlay-hints.less'), 'utf8');
 assert.doesNotMatch(calloutStyles, /@[a-z-]+-color/, 'theme LESS variables resolve against the wrong theme at compile time (and fail the whole file without an import) — keep the stylesheet self-contained');
 assert.match(calloutStyles, /font-family:\s*var\(--editor-font-family\)/);
-assert.match(calloutStyles, /font-size:\s*calc\(var\(--editor-font-size\)\s*\*\s*0\.8\)/, 'text scales down from the editor font size so boxes stay shorter than a line');
+assert.match(calloutStyles, /font-size:\s*var\(--editor-font-size\)/, 'text uses the editor font size');
 assert.match(calloutStyles, /background:\s*var\(--tool-panel-background-color,\s*#252525\)/, 'box keeps its own dark neutrals with a var() escape hatch');
 assert.match(calloutStyles, /&\.other-line/, 'off-cursor-line emphasis is a stylesheet rule');
 assert.match(calloutStyles, /&\.below \.vscode-inlay-hint-callout-arrow[\s\S]*?rotate\(45deg\)/, 'below arrow orientation is a stylesheet rule');
