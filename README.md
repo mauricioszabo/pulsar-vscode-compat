@@ -1,14 +1,22 @@
 # Pulsar VSCode Compatibility Layer
 
-- Initial commit - added some APIs for LSP
-- Added an installer of packages, under the "Browse Extensions" command
-- Adapted extensions' configs to Pulsar's
-- Webview API (probably still things missing)
-- Theme adaptation (also listening to theme changes)
-- Pulsar service integrations for autocomplete-plus, symbols-view, linter-indie,
-status-bar, atom-select-list, notifications, and commands
-- Pseudoterminal-backed terminal support for extensions that expose REPL/status terminals
-target is to make real editor workflows work for extensions.
+The intention of this plug-in is to allow VSCode extensions to be installed in
+Pulsar, and behave like they were Pulsar native. It does that by mapping
+VSCode's APIs to Pulsar's ones (not **Atom** - this plug-in uses some specific
+APIs that were added in Pulsar) and then adapting activation code so that such
+extensions can work. Each extension will be installed in the same directory as
+Pulsar's packages, so they are essentially **indistinguishable** from Pulsar's
+"normal" packages - but they still need to `vscode-compat` extension to be
+installed and active otherwise they won't work.
+
+There are a couple changes that one needs to be aware: VSCode extensions run in
+a webworker, so they don't block the main thread. That means, if an extension is
+misbehaving, you will get a spike in your CPU or your editor consuming a lot of
+memory, but the editor itself might not block, freeze, or appear to be slowing
+down. In Pulsar, packages run in the main thread - the same as the UI,
+autocomplete, and everything else. This means that the editor _will freeze_ if
+something goes wrong - but it also means we can open up the door for some very
+cool [experiments in the future](#future-experiments).
 
 ## WARNING - AI CODE
 
@@ -40,6 +48,7 @@ pulsar-vscode-compat:browse-extensions
 The browser installs from Open VSX. After installation it tries to load and
 activate the generated Pulsar package immediately with Pulsar's package manager.
 A reload prompt is only shown if immediate activation fails.
+Platform-specific Open VSX artifacts are selected when available.
 
 The compatibility layer tries really hard to map the extension activation hooks
 into Pulsar ones - for example, opening up a Python source code should trigger
@@ -134,7 +143,9 @@ The wrapper reads `contributes.commands` from the original VSCode `package.json`
 - `getWorkspaceFolder(uri)` finds the owning Pulsar project path.
 - `applyEdit` applies VSCode `WorkspaceEdit` text edits to Pulsar buffers and handles simple create/delete/rename file operations.
 - `getConfiguration(section)` maps VSCode configuration keys onto Pulsar config keys. For wrapped extensions, contributed configuration from a single VSCode section is shown as package-level settings in Pulsar's package UI, while `workspace.getConfiguration(section)` still reads/writes the corresponding wrapper setting. Older nested `wrapperPackage.section.key` values are still read as a fallback.
+- Configuration change events report whether a requested VSCode setting was affected.
 - `workspace.fs` maps to Node `fs.promises` for the `file:` scheme: `stat`, `readDirectory`, `createDirectory`, `readFile`, `writeFile`, `delete`, `rename`, and `copy`.
+- VSCode-style `FileSystemError` factories are available.
 - `registerFileSystemProvider` registers custom URI schemes for `workspace.fs` operations.
 - `registerTextDocumentContentProvider` supports virtual/read-only documents for custom schemes.
 - `createFileSystemWatcher` uses Pulsar's global `atom.watchPath` when available and matches common VSCode glob patterns without an undeclared `minimatch` dependency.
@@ -165,13 +176,15 @@ Pulsar mapping:
 - The adapter lives in `lib/adapters/completion-adapter.js`.
 - VSCode `CompletionItem` objects are converted to autocomplete-plus suggestions.
 - Completion documentation is converted to Markdown/HTML suitable for Pulsar's completion UI.
+- Completion prefixes, filtering, and item ranges are mapped to autocomplete-plus.
 - `resolveCompletionItem` maps to autocomplete-plus detail resolution.
 - Completion item commands are dispatched through Pulsar command dispatch after insertion.
 
 Limitations:
 
 - The mapping is approximate because VSCode completion and autocomplete-plus have different item models.
-- Some VSCode insert text rules, snippets, commit characters, and complex text edits may not behave exactly like VSCode.
+- Some VSCode insert text rules, snippets, commit characters, additional text edits,
+  and complex insert/replace behavior may not behave exactly like VSCode.
 
 ### Hover
 
@@ -183,19 +196,15 @@ vscode.languages.registerHoverProvider(selector, provider)
 
 Pulsar mapping:
 
-- Hover providers are stored in an internal registry.
-- Mouse movement over `atom-text-editor` elements is observed.
-- On hover, the adapter checks whether the pointer is actually over rendered token text, translates the mouse location to a buffer position, wraps the editor as a VSCode `TextDocument`, and calls `provider.provideHover(document, position, token)`.
-- Returned hover Markdown is rendered into a custom tooltip overlay.
-- Markdown is rendered through Pulsar's markdown support when available (`atom.ui.markdown`), with fallback rendering for plain text/Markdown strings.
+- Hover providers are exposed through Pulsar's `hover` service.
+- VSCode hover contents and ranges are converted to Pulsar's hover provider format.
 
 This is implemented in:
 
 ```text
 lib/adapters/hover-adapter.js
+lib/service/hover.js
 ```
-
-There is no direct native Pulsar hover provider API being used here; the mapping is implemented as DOM event handling plus a custom tooltip.
 
 ### Diagnostics / linting
 
@@ -394,7 +403,9 @@ vscode.languages.registerInlayHintsProvider(selector, provider)
 Pulsar mapping:
 
 - Providers are observed per editor.
-- Returned hints are rendered as custom decorations using DOM elements with class `vscode-inlay-hint`.
+- Returned hints are rendered as viewport-aware callout decorations.
+- Hints refresh as the editor and provider state changes.
+- Rendering can be disabled with the **Show Inlay Hints** package setting.
 
 Implemented in:
 
@@ -529,7 +540,7 @@ Pulsar mapping:
 - Selection changes are translated from Pulsar editor selection/cursor events into VSCode-shaped `onDidChangeTextEditorSelection` events.
 - Basic selections, ranges, reveal, edit, insert, delete, and selection setters/getters are implemented.
 - `tabGroups.all` and `activeTabGroup` are synthesized from Pulsar center panes.
-- Text tabs expose `TabInputText`; compat webview tabs expose shared `TabInputWebview` instances so `instanceof vscode.TabInputWebview` checks work.
+- Text, text-diff, and compat webview tabs expose the corresponding VSCode tab input types.
 - Decorations are translated to Pulsar markers/decorations and generated CSS where possible.
 
 Limitations:
@@ -548,13 +559,13 @@ vscode.window.createTreeView(...)
 
 Pulsar mapping:
 
-- Tree providers render into a custom dock item, usually on the left.
-- `getChildren` and `getTreeItem` are used to render a simple nested list.
-- Tree item commands dispatch through Pulsar command dispatch.
+- Tree data providers are exposed through Pulsar's `outline-view` service.
+- Tree items are converted to nested outline entries with basic metadata and icons.
 
 Limitations:
 
-- Selection, reveal, checkbox, drag/drop, icons, badges, and advanced tree lifecycle behavior are incomplete or stubbed.
+- Selection, reveal, checkbox, drag/drop, badges, commands, and advanced tree lifecycle
+  behavior are incomplete or stubbed. Icon mapping is best-effort.
 
 ### Webviews
 
@@ -594,7 +605,9 @@ Pulsar mapping:
 
 - Loaded Pulsar packages are inspected.
 - Wrapped VSCode packages expose metadata from their original `extension/package.json` and wrapper `package.json`.
-- `activate()` on the returned extension object resolves to the package exports when available.
+- Installed but inactive wrappers can also be discovered.
+- `activate()` waits for activation and resolves to the original extension's exports.
+- A built-in `vscode.git` compatibility API is available.
 
 ### Environment
 
@@ -629,7 +642,7 @@ These APIs have real behavior and are expected to be useful for compatibility wo
 - `workspace.fs` maps to Node `fs.promises` for local `file:` operations and dispatches to registered `FileSystemProvider`s for custom schemes.
 - Text document/editor wrappers: positions, ranges, selections, edits, document text, language id, version, save/change events.
 - Completion through autocomplete-plus.
-- Hover through custom tooltip rendering.
+- Hover through Pulsar's native hover provider service.
 - Diagnostics through internal collections and linter-indie when available.
 - Definition/declaration/implementation/type-definition/reference/document-symbol/workspace-symbol navigation through symbols-view provider shapes.
 - Code actions via `vscode-compat:code-action` command.
@@ -638,7 +651,7 @@ These APIs have real behavior and are expected to be useful for compatibility wo
 - Signature help overlay on trigger characters.
 - Document highlights.
 - CodeLens decorations.
-- Inlay hint decorations.
+- Viewport-aware inlay hint callout decorations with a package-level visibility toggle.
 - Output channels and log output channels.
 - Status bar items when Pulsar's status-bar service is available.
 - Quick pick, createQuickPick, input box, open/save dialogs.
@@ -686,7 +699,7 @@ Important compatibility gaps remain:
 
 - A full VSCode extension host lifecycle model: activation events, dependencies, extension kinds
 - Better language selector matching, especially VSCode's richer document selector semantics.
-- More complete completion behavior: snippets, commit characters, additional text edits, insert/replace ranges, and completion item resolve parity.
+- More complete completion behavior: snippets, commit characters, additional text edits, and completion item resolve parity.
 - Native-quality hover positioning, dismissal, focus handling, and Markdown command URI handling.
 - Full LSP-style code action context including diagnostics and source actions.
 - Proper document links and link navigation.
@@ -703,7 +716,34 @@ Important compatibility gaps remain:
 - Better file watching parity with VSCode glob semantics.
 - Testing across more real extensions.
 
+## Future experiments
+
+In the past, I had an interesting idea that I never really was able to implement
+- to make an "extended VSCode API". The issue is simple: doesn't support
+arbitrarily changing its own UI, unless you do in the way they want you to - and
+that usually means that there's no "interaction" that can be done. This [was
+asked](https://github.com/microsoft/vscode/issues/3220), and [more than
+once](https://github.com/microsoft/vscode/issues/85682), but nothing was merged
+nor even discussed.
+
+Now, what if Pulsar could offer a VSCode API that does this? For example,
+[VSCode's Hover
+API](https://code.visualstudio.com/api/references/vscode-api#DecorationOptions)
+allows one to decide if they want to show plain text or markdown - but inside
+Pulsar, we could allow the user to provide another element - something like
+`htmlHoverMessage` - so that an user could offer both `hoverMessage` and this
+new parameter, and Pulsar would prefer the former, rendering a "richer version"
+of such decoration.
+
+For a plug-in author, this seems huge - one could implement only a single
+version of their extension, written in the VSCOde API, and then get a "better
+version" of it, for free, just by adding some small parameters on editors that
+support that.
+
+None of this is implemented right now - but it's a good idea for the future.
+
 ## Incompatibilities
+
 - Workspace trust, and extension host isolation won't be implemented.
 - Color provider UI and color presentation support won't probably ever work
 
@@ -740,3 +780,5 @@ This README describes the current state of the compatibility layer, not a guaran
 - Calva
 - Claude Code
 - Shopify's Ruby LSP
+- [Microsoft/vscode-python](https://github.com/microsoft/vscode-python)
+- [facebook/pyrefly](https://github.com/facebook/pyrefly)
