@@ -7,8 +7,17 @@
   "engines": {
     "pulsar": ">=1.0.0 <2.0.0"
   },
+  "configSchema": {
+    "showInlayHints": {
+      "type": "boolean",
+      "default": true,
+      "title": "Show Inlay Hints",
+      "description": "Display inlay hints (e.g. inferred types) as end-of-line annotations, with a detailed callout on the cursor line."
+    }
+  },
   "styleSheets": [
-    "extension-browser.less"
+    "extension-browser.less",
+    "inlay-hints.less"
   ],
   "consumedServices": {
     "status-bar": {
