@@ -1,0 +1,45 @@
+// Deliberately no `@import "ui-variables"`: theme LESS variables resolve against whatever
+// theme is active when this package's styles compile, which is not reliably the user's theme.
+// Text color is inherited from the editor; the box keeps its own dark neutrals.
+atom-text-editor .vscode-inlay-hint-callout {
+  font-family: var(--editor-font-family);
+  font-size: var(--editor-font-size);
+  font-style: normal;
+  line-height: calc(var(--editor-line-height) * 0.85);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  background: var(--tool-panel-background-color, #252525);
+  border: 1px solid var(--base-border-color, #666);
+  border-radius: 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  opacity: 0.95;
+  padding: 0 5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: none;
+
+  // Hints for lines other than the one the cursor is on.
+  &.other-line {
+    opacity: 0.9;
+  }
+
+  .vscode-inlay-hint-callout-arrow {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    background: var(--tool-panel-background-color, #252525);
+    border-left: 1px solid var(--base-border-color, #666);
+    border-top: 1px solid var(--base-border-color, #666);
+  }
+
+  &.below .vscode-inlay-hint-callout-arrow {
+    top: -4px;
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  &.above .vscode-inlay-hint-callout-arrow {
+    bottom: -4px;
+    transform: translateX(-50%) rotate(225deg);
+  }
+}
