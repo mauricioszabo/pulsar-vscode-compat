@@ -5,6 +5,22 @@ const { makeAutocompleteProvider } = require('../lib/adapters/completion-adapter
 const { Range } = require('../lib/types/range');
 const { Position } = require('../lib/types/position');
 
+global.atom = {
+  ui: {
+    fuzzyMatcher: {
+      setCandidates(candidates) {
+        return {
+          match(prefix) {
+            return candidates
+              .map((candidate, id) => ({ candidate, id }))
+              .filter(({ candidate }) => candidate.startsWith(prefix));
+          }
+        };
+      }
+    }
+  }
+};
+
 function fakeEditor() {
   return {
     getGrammar() { return { scopeName: 'source.python' }; },
@@ -13,6 +29,14 @@ function fakeEditor() {
     getBuffer() { return { getPath() { return '/tmp/example.py'; } }; },
     getText() { return 'pri'; },
     getTextInBufferRange() { return 'pri'; },
+    getLastCursor() {
+      return {
+        getCurrentWordBufferRange() {
+          return { start: [0, 0], end: [0, 3] };
+        }
+      };
+    },
+    getSelectedBufferRange() { return { start: [0, 3], end: [0, 3] }; },
     lineTextForBufferRow() { return 'pri'; },
     getLineCount() { return 1; },
     isModified() { return false; },
@@ -54,7 +78,7 @@ async function test(name, fn) {
     assert.strictEqual(suggestions[0].range, undefined);
   });
 
-  await test('completion item insert/replace ranges use replacing range for autocomplete-plus', async () => {
+  await test('completion item insert/replace ranges use inserting range for autocomplete-plus', async () => {
     const provider = makeAutocompleteProvider('python', {
       provideCompletionItems() {
         return [{
@@ -75,6 +99,6 @@ async function test(name, fn) {
     });
 
     assert.strictEqual(suggestions.length, 1);
-    assert.deepStrictEqual(suggestions[0].ranges, [ [[0, 0], [0, 4]] ]);
+    assert.deepStrictEqual(suggestions[0].ranges, [ [[0, 1], [0, 3]] ]);
   });
 })();

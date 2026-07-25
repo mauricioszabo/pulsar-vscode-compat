@@ -64,11 +64,9 @@ assert(!callout.classList.contains('below'));
 assert.match(callout.style.transform, /-100%/);
 assert.match(callout.style.transform, /0\.15em/, 'above placement stays close to the text below it');
 assert.match(callout.style.transform, /- var\(--editor-line-height\)/, 'above placement is also shifted one editor line upward');
-assert.strictEqual(callout.children[1].style.bottom, '-4px');
 
 setInlayHintCalloutPlacement(callout, false);
 assert(callout.classList.contains('below'));
-assert.strictEqual(callout.children[1].style.top, '-4px');
 
 const overlay = { style: { zIndex: '4' } };
 const calloutInOverlay = { closest(selector) { return selector === 'atom-overlay' ? overlay : null; } };
@@ -149,16 +147,28 @@ pokingBelow._rect = { left: 0, top: 690, height: 40 };
 assert.strictEqual(clampInlayHintCallout(pokingBelow), true);
 assert.strictEqual(pokingBelow.style.visibility, 'hidden', 'box escaping below the editor is hidden');
 
-// Callouts off the cursor's line fade back so a screen full of hints stays readable.
+// Emphasis is expressed as classes so stylesheets decide how each state looks.
 const dimmed = createInlayHintCallout(': str');
 setInlayHintCalloutEmphasis(dimmed, false);
-assert.strictEqual(dimmed.style.opacity, '0.90', 'callouts away from the cursor line fade back');
+assert(dimmed.classList.contains('other-line'), 'callouts away from the cursor line get other-line');
+assert(!dimmed.classList.contains('current-line'));
 setInlayHintCalloutEmphasis(dimmed, true);
-assert.strictEqual(dimmed.style.opacity, '0.95', 'the cursor line callout keeps full emphasis');
+assert(dimmed.classList.contains('current-line'), 'the cursor line callout gets current-line');
+assert(!dimmed.classList.contains('other-line'));
+
+// All cosmetic styling lives in the stylesheet so users can override it from their own styles.
+// package.json's styleSheets array makes Pulsar load ONLY the listed files — inlay-hints.less
+// must be in it or none of these rules ever apply.
+const packageMeta = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'));
+assert(packageMeta.styleSheets.includes('inlay-hints.less'), 'inlay-hints.less is registered in package.json styleSheets');
 
 const calloutStyles = fs.readFileSync(path.join(__dirname, '../styles/inlay-hints.less'), 'utf8');
+assert.doesNotMatch(calloutStyles, /@[a-z-]+-color/, 'theme LESS variables resolve against the wrong theme at compile time (and fail the whole file without an import) — keep the stylesheet self-contained');
 assert.match(calloutStyles, /font-family:\s*var\(--editor-font-family\)/);
-assert.match(calloutStyles, /font-size:\s*var\(--editor-font-size\)/);
-assert.match(calloutStyles, /color:\s*@text-color/);
+assert.match(calloutStyles, /font-size:\s*calc\(var\(--editor-font-size\)\s*\*\s*0\.8\)/, 'text scales down from the editor font size so boxes stay shorter than a line');
+assert.match(calloutStyles, /background:\s*var\(--tool-panel-background-color,\s*#252525\)/, 'box keeps its own dark neutrals with a var() escape hatch');
+assert.match(calloutStyles, /&\.other-line/, 'off-cursor-line emphasis is a stylesheet rule');
+assert.match(calloutStyles, /&\.below \.vscode-inlay-hint-callout-arrow[\s\S]*?rotate\(45deg\)/, 'below arrow orientation is a stylesheet rule');
+assert.match(calloutStyles, /&\.above \.vscode-inlay-hint-callout-arrow[\s\S]*?rotate\(225deg\)/, 'above arrow orientation is a stylesheet rule');
 
 console.log('inlay hints render as non-interactive callouts above or below their anchor');
