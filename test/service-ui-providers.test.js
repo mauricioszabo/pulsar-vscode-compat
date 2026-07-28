@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const fs = require('fs');
+const Module = require('module');
 
 function test(name, fn) {
   Promise.resolve()
@@ -139,4 +140,72 @@ test('createTreeView registers an outline-view provider without opening custom d
   assert.strictEqual(outline.outlineTrees[0].children[0].icon, 'type-method');
   assert.strictEqual(outline.outlineTrees[0].children[0].collapsed, false);
   assert.deepStrictEqual(outline.outlineTrees[0].startPosition, { row: 0, column: 0 });
+});
+
+test('VSCode reference providers are exposed through the pulsar-find-references service', async () => {
+  clearCompatRequireCache();
+
+  class FakeAtomRange {
+    constructor(start, end) { this.start = start; this.end = end; }
+    containsPoint() { return false; }
+    toString() { return `${this.start}x${this.end}`; }
+  }
+  const originalLoad = Module._load;
+  Module._load = function(request, parent, isMain) {
+    if (request === 'atom') return { Range: FakeAtomRange };
+    return originalLoad.apply(this, arguments);
+  };
+
+  global.atom = {
+    config: { get() { return undefined; } },
+    workspace: { observeTextEditors() {} },
+    views: { getView() { return fakeElement(); } }
+  };
+
+  try {
+    const vscode = require('../lib/vscode');
+    const main = require('../lib/main');
+
+    vscode.languages.registerReferenceProvider('clojure', {
+      provideReferences(document, position, context, token) {
+        return [
+          {
+            uri: vscode.Uri.file('/tmp/core.clj'),
+            range: new vscode.Range(new vscode.Position(1, 0), new vscode.Position(1, 3))
+          }
+        ];
+      }
+    });
+
+    const manifest = JSON.parse(fs.readFileSync(require.resolve('../package.json'), 'utf8'));
+    assert.strictEqual(manifest.providedServices['find-references'].versions['0.1.0'], 'provideFindReferences');
+
+    const serviceProvider = main.provideFindReferences();
+
+    const matchingEditor = {
+      getGrammar() { return { scopeName: 'source.clojure' }; },
+      getPath() { return '/tmp/core.clj'; },
+      getText() { return 'foo\nbar\n'; },
+      getWordUnderCursor() { return 'bar'; },
+      getBuffer() { return { onDidChange() { return { dispose() {} }; } }; }
+    };
+    const nonMatchingEditor = {
+      getGrammar() { return { scopeName: 'source.js' }; }
+    };
+
+    assert.strictEqual(serviceProvider.isEditorSupported(matchingEditor), true);
+    assert.strictEqual(serviceProvider.isEditorSupported(nonMatchingEditor), false);
+
+    const result = await serviceProvider.findReferences(matchingEditor, { row: 1, column: 1 });
+    assert.strictEqual(result.type, 'data');
+    assert.strictEqual(result.referencedSymbolName, 'bar');
+    assert.strictEqual(result.references.length, 1);
+    assert.strictEqual(result.references[0].uri, '/tmp/core.clj');
+    assert.ok(result.references[0].range instanceof FakeAtomRange,
+      'reference range must be a real atom.Range instance, not a plain object');
+    assert.deepStrictEqual(result.references[0].range.start, [1, 0]);
+    assert.deepStrictEqual(result.references[0].range.end, [1, 3]);
+  } finally {
+    Module._load = originalLoad;
+  }
 });
