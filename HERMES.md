@@ -24,6 +24,15 @@ for f in test/*.test.js; do
 done
 ```
 
+## Forbidden permissions
+
+* **DO NOT, EVER, EVER**, touch ~/.pulsar/ configs unless you ask EXPLICTLY for
+* permissions AND the places you can work are under `~/.pulsar/packages/vs-*`
+* (that is, to patch VSCode packages already installed)
+
+* **DO NOT, EVER, EVER**, clear session, start Pulsar with
+* `--clear-window-state`, or anything like that.
+
 ## Recent work completed in this session
 
 The README was expanded to document the implemented and partial VSCode APIs, including:
@@ -131,6 +140,8 @@ All packages live in `~/.pulsar/packages`. VSCode packages are prefixed with `vs
 - For Claude Code, practical webview compatibility includes CSP handling, iframe sizing, local resources, `acquireVsCodeApi` messaging, theme variables, live theme updates, `ViewColumn`, tab groups, and selection/file lookup APIs.
 - For Calva, practical compatibility includes readable command palette names, REPL connection flows, QuickPick/InputBox, pseudoterminals, workspace APIs, and language-client-ish APIs.
 - Do not inject Pulsar source theme variables into host compat CSS in a way that contaminates later theme snapshots; use VSCode-style variables for webviews.
+- `SharedArrayBuffer is not defined` at extension load: Chrome gates this global per-renderer-`ExecutionContext` via cross-origin isolation (COOP/COEP), checked at the point of use, not just as a missing property. Recovering a constructor via `require('vm').runInNewContext('SharedArrayBuffer')` and copying it onto `globalThis` (the original fix in `generateWrapperMain()`'s `_restoreSharedArrayBuffer`) looked right and passed its original test, but does **not** work in the real Pulsar renderer — the recovered constructor can still throw when actually constructed back in the gated context. The working fix (see `lib/ui/install-vsx.js`) tries the vm-recovered constructor but verifies it actually constructs, falling back to a construct-only `class SharedArrayBuffer extends ArrayBuffer {}` polyfill otherwise. This is safe because extension bundles observed in practice (e.g. Claude Code's) only call `Atomics.wait` on these buffers behind a `process.platform === 'win32'` guard; elsewhere they're just `new Int32Array(new SharedArrayBuffer(n))` at module scope for bookkeeping, which the polyfill satisfies without needing real shared memory. If a future extension needs a genuinely working `Atomics.wait`/cross-context shared memory on Linux/Mac, that requires real COOP/COEP headers on Pulsar's `BrowserWindow`, which is main-process/Pulsar-core territory outside what this package can fix.
+- A crashed/never-activated VSCode extension (e.g. from the SharedArrayBuffer crash above) explains a second, seemingly unrelated symptom: command palette entries showing raw humanized ids like "Claude Vscode.blur" instead of `contributes.commands` titles like "Claude Code: Focus input". Pulsar auto-registers placeholder commands for every `activationCommands` entry in the wrapper's package.json *before* the package activates, purely so the palette can lazily trigger activation; those placeholders have no display-name metadata. `lib/namespaces/commands.js`'s `registerCommand` re-registers each command with a real `displayName` from `extension/package.json`'s `contributes.commands`, but only once the extension actually finishes activating. If commands still show raw/humanized ids after confirming activation succeeds (check devtools console for `[vscode-compat] Failed to load extension`), that's a distinct bug in `lib/namespaces/commands.js`; if activation was failing, fixing activation is very likely already the fix.
 
 ## Suggested next steps
 
