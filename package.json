@@ -17,7 +17,8 @@
   },
   "styleSheets": [
     "extension-browser.less",
-    "inlay-hints.less"
+    "inlay-hints.less",
+    "codelens.less"
   ],
   "consumedServices": {
     "status-bar": {
