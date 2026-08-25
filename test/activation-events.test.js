@@ -46,13 +46,22 @@ test('infers modern VSCode command and language activation events from contribut
   });
 });
 
-test('uses startup activation for wildcard or unsupported VSCode activation events', () => {
+test('keeps mapped language activation when another VSCode event is unsupported', () => {
+  assert.deepStrictEqual(buildPulsarActivationMetadata({
+    activationEvents: ['onLanguage:python', 'onNotebook:jupyter-notebook']
+  }), {
+    activationCommands: undefined,
+    activationHooks: ['source.python:root-scope-used'],
+  });
+});
+
+test('uses immediate activation for wildcard and a guarded startup hook for workspaceContains', () => {
   assert.deepStrictEqual(buildPulsarActivationMetadata({ activationEvents: ['*', 'onCommand:x.y'] }), {
     activationCommands: undefined,
     activationHooks: undefined,
   });
   assert.deepStrictEqual(buildPulsarActivationMetadata({ activationEvents: ['workspaceContains:**/Gemfile'] }), {
     activationCommands: undefined,
-    activationHooks: undefined,
+    activationHooks: ['core:loaded-shell-environment'],
   });
 });
